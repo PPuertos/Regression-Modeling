@@ -5,10 +5,20 @@ import scipy.stats as stats
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import math
+import statsmodels.api as sm
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 # The Critical Values of the Durbin Watson Test are from:
 # https://support.minitab.com/en-us/minitab/help-and-how-to/statistical-modeling/regression/supporting-topics/model-assumptions/test-for-autocorrelation-by-using-the-durbin-watson-statistic/
 durbin_watson = pd.read_csv('critical_values_durbin_watson.csv')
+
+class global_functions:
+    def select_y_var(df):
+        [print(f"{i+1}. {k}") for i,k in enumerate(df.columns)]
+        x = input("Select y variable:")
+        y_index = int(x)-1
+        y_name = df.iloc[:,y_index:y_index+1].columns[0]
+        return {'y_index':int(x)-1,'y_name':y_name}
 
 class linearization:
     def linearizable_model(df):
@@ -304,7 +314,7 @@ class plots:
         corr_matrix = df.corr()
 
         # Transforming data to do a heatmap
-        heatmap_df = corr_matrix.stack().reset_index()
+        heatmap_df = corr_matrix.iloc[:,::-1].stack().reset_index()
 
         # Modifying the column names of the new df created
         heatmap_df.columns = ['x', 'y', 'z']
@@ -314,8 +324,8 @@ class plots:
 
         # Doing the heatmap
         corr_heatmap = px.density_heatmap(heatmap_df, x='x', y='y', z='z',
-                                        color_continuous_scale=[[0, 'white'], [1, 'darkblue']],
-                                        range_color=[0, 100], text_auto=True, template="plotly_dark")
+                                        color_continuous_scale=[[0, 'darkblue'], [0.5, 'white'], [1, 'darkred']],
+                                        range_color=[-100, 100], text_auto=True, template="plotly_dark")
 
         # Title Centered
         corr_heatmap.update_layout(title=dict(text="Correlation Matrix", x=0.5))
@@ -591,3 +601,70 @@ class webAppCorrMultiple:
     def correlation_matrix_table(df):
         table = df.corr()
         return table
+
+class RegMultiple:
+    def VIF(X):
+        X = sm.add_constant(X)  # Añadir constante para el intercepto del modelo
+
+        # Calcular el VIF para cada característica
+        vif = pd.DataFrame()
+        vif["Variable"] = X.iloc[:,1:].columns
+        vif["VIF"] = [variance_inflation_factor(X,i) for i in range(1,len(X.columns))]
+        return vif
+    
+    def ecuation_est(X,Y):
+        X = sm.add_constant(X)
+
+        betas = pd.DataFrame()
+        betas["variable"] = X.columns
+
+        X = X.values
+        Y = Y.values
+        Xt = X.T 
+        XtX = np.dot(Xt,X)
+        XtX_inv = np.linalg.inv(XtX)
+        XtX_inv_Xt = np.dot(XtX_inv,Xt)
+        b = np.dot(XtX_inv_Xt,Y)
+
+        betas["beta"] = b
+        
+        y_est = np.dot(X,b)
+        
+        return y_est, betas
+    
+class webAppRegMultiple:
+    def anova_table(df):
+        y_definition = global_functions.select_y_var(df)
+        y_name = y_definition['y_name']
+        y_index = y_definition['y_index']
+        Y = df.iloc[:,y_index:y_index+1]
+        X = df.drop(y_name, axis=1)
+
+        ec_est = RegMultiple.ecuation_est(X,Y)
+        Y_est = ec_est[0]
+        b = ec_est[1]
+
+        n = len(df)
+        k = len(X.columns)
+
+        anova_table =pd.DataFrame()
+
+        anova_table['source_of_variation'] = ['Regression','Residuals','Total']
+        anova_table['degrees_of_freedom'] = pd.Series([k,n-k-1,n-1])
+        
+        SSR = sum(np.square(Y_est-Y_est.mean()))[0]
+        SSE = sum(np.square(Y.values - Y_est))[0]
+        SST = sum(np.square(Y.values - Y_est.mean()))[0]
+        anova_table['sum_of_squares'] = pd.Series([SSR,SSE,SST])
+
+        MSR = SSR/k
+        MSE = SSE/(n-k-1)
+        anova_table['half_square'] = pd.Series([MSR,MSE])
+        f0 = MSR/MSE
+        anova_table['f0'] = pd.Series([f0])
+
+        f_alpha = stats.f.isf(.05,k,n-k-1)
+
+        significance_test = linearization.significance_test(f0,f_alpha)
+        
+        return {'anova_table':anova_table,'r_square':SSR/SST,'significance_test':significance_test, 'bi':b, 'y_est':Y_est}
