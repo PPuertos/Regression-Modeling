@@ -10,7 +10,7 @@ from itertools import combinations
 
 # The Critical Values of the Durbin Watson Test are from:
 # https://support.minitab.com/en-us/minitab/help-and-how-to/statistical-modeling/regression/supporting-topics/model-assumptions/test-for-autocorrelation-by-using-the-durbin-watson-statistic/
-durbin_watson = pd.read_csv('critical_values_durbin_watson.csv')
+durbin_watson = pd.read_csv('/Users/macbook/Desktop/Proyecto Métodos Estadísticos/Regression-Modeling/critical_values_durbin_watson.csv')
 
 # THIS FUNCTIONS ARE GOING TO BE GLOBAL
 class global_functions:
@@ -21,6 +21,59 @@ class global_functions:
         y_index = int(x)-1
         y_name = df.iloc[:,y_index:y_index+1].columns[0]
         return {'y_index':int(x)-1,'y_name':y_name}
+
+    # Function to make the different scatter plots MULTIPLE AND SIMPLE REGRESSION MODELS
+    def scatter_plot(df,title):
+        # First Column of the data frame is going to be X axis an second column is going to be Y axis
+        x_name = df.columns[0]
+        y_name = df.columns[1]
+
+        # Creating Scatter Plot
+        fig = px.scatter(df, x=x_name, y=y_name, template='plotly_dark', 
+                        color=y_name, hover_data={x_name: True, y_name: True})
+
+
+        # Configurar el título con Plotly Graph Objects
+        fig.update_layout(title=dict(text=f"<b>{title}</b>",
+                                    x=0.5,  # Centering title horizontaly
+                                    y=0.95,  # Title aligned to the top of the plot
+                                    xanchor='center',  # Horizontal anchor cenetered
+                                    yanchor='top'))  # Vertical anchor at the top
+
+        # Updating tooltip, color and size of the dots
+        fig.update_traces(marker=dict(color='blue', size=8), hovertemplate=f'{x_name}: %{{x}}<br>{y_name}: %{{y}}', line=dict(dash='dot'))
+        
+        # Just for the Versus Fits and the Versus Order Plots, we are adding an horizontal dotted line.
+        if title == 'Versus Fits' or title == 'Versus Order':
+            # Adding horizontal dotted line.
+            fig.add_shape(type='line',
+                        x0=df[x_name].min(), x1=df[x_name].max(),
+                        y0=0, y1=0,  # Adjusting de horizontal line to y=0
+                        line=dict(color='white', dash='dot'))
+        
+        # Just for the Versus Order Plot, we are adding a line that follows all the points without smoothing lines
+        if title == 'Versus Order':
+            line_fig = px.line(df, x=x_name, y=y_name)
+            for trace in line_fig.data:
+                trace.update(line=dict(color='blue', width=2))
+                fig.add_trace(trace)
+        
+        # Just for the Normal Probability Plot we are adding a tendence line.
+        if title == 'Normal Probability Plot' or title == 'Correlation Plot':      
+            # Calcular la línea de tendencia usando statsmodels
+            X = sm.add_constant(df[x_name])  # Agregar una constante para el término independiente
+            model = sm.OLS(df[y_name], X).fit()
+            trendline = model.predict(X)
+            if title == 'Normal Probability Plot':
+                # Agregar la línea de tendencia al gráfico
+                fig.add_trace(go.Scatter(x=df[x_name], y=trendline, mode='lines', name='OLS', line=dict(color='red', dash='dot')))
+                fig.update_layout(showlegend=False)
+            else:
+                # Agregar la línea de tendencia al gráfico
+                fig.add_trace(go.Scatter(x=df[x_name], y=trendline, mode='lines', name='OLS', line=dict(color='white', dash='dot')))
+                fig.update_traces()
+                fig.update_layout(showlegend=False, title=dict(text=f"<b>Correlation Plot ({df.corr()[df.columns[0]][df.columns[1]]*100:.2f}%)</b>", x=.5))
+        return fig
 
     # RESIDUALS DISTRIBUTED NORMAL WITH MEAN 0, VARIANCE OF THE RESIDUALS
     # NORMAL DISTRIBUTION MEAN 0
@@ -130,6 +183,24 @@ class global_functions:
             atypical_data = "There is not atypical data in the sample"
             
         return atypical_data
+    
+    def qqplot(residuals,residuals_variance):
+        # NORMALITY OF THE RESIDUALS
+        # Sorting residuals ascendently
+        sorted_residuals = np.sort(residuals)
+        # k is the probability P[Z < Zk] = k
+        k = [(i-.375)/(len(residuals)+.25) for i in range(1,len(residuals)+1)]
+        # Now we find Zk
+        Zk = [stats.norm.isf(1-i) for i in k]
+        # Finally we calculate the expected value if the residuals where distributed normally
+        exp_value = [i*residuals_variance**.5 for i in Zk]
+        # Data Frame to use the scatter plot function
+        qqplot_df = pd.DataFrame({'Residuals':sorted_residuals,'Expected Value':exp_value})
+
+        # Normal Probability Plot
+        normal_prob_plt = global_functions.scatter_plot(qqplot_df,'Normal Probability Plot')
+        
+        return normal_prob_plt
 
 # THIS FUNCTIONS CAN BE USED IN THE SIMPLE REGRESSION MODELING, SOME OF THEM IN THE MULTIPLE REGRESSION MODELING
 class linearization:
@@ -445,7 +516,7 @@ class plots:
 
         # Doing the heatmap
         corr_heatmap = px.density_heatmap(heatmap_df, x='x', y='y', z='z',
-                                        color_continuous_scale=[[0, 'darkblue'], [0.5, 'white'], [1, 'darkred']],
+                                        color_continuous_scale=[[0, 'blue'], [0.5, 'gray'], [1, 'red']],
                                         range_color=[-100, 100], text_auto=True, template="plotly_dark")
 
         # Title Centered
@@ -613,8 +684,8 @@ class webAppRegSimple:
         # CONSTANT VARIANCE
         residuals = model_data['residuals']
         estimated_y = model_data['forecast_y']
-        constant_variance_plot = webAppCorrSimple.correlation_plot(pd.DataFrame({'x':estimated_y, 'y':residuals}))
-
+        constant_variance_plot = global_functions.scatter_plot(pd.DataFrame({'Residuals':estimated_y, 'Fitted Value':residuals}),'Versus Fits')
+        
         # NORMAL DISTRIBUTION MEAN 0
         # H0: Residuals come from a Normal distribution with 0 mean
         # Ha: Residuals come from anothe distribution
@@ -667,12 +738,7 @@ class webAppRegSimple:
             normal_0_mean_hypothesis = f"{test_statistic.__round__(4)} < {chi_square.__round__(4)}, Residuals come from a Normal distribution with mean 0"
         
         # QQPLOT: Also for Normal Distribution Asumption
-        residuals_ordered = sorted(residuals)
-        k = [(i-.375)/(n+.25) for i in range(1,n+1)]
-        Zk = [stats.norm.ppf(q=i, loc=0, scale=1) for i in k]
-        exp_values = [i*residuals_std for i in Zk]
-        
-        qqplot = webAppCorrSimple.correlation_plot(pd.DataFrame({'x':residuals_ordered, 'y':exp_values}))
+        qqplot = global_functions.qqplot(residuals,residuals_std**2)
         
         # INCORRELATION ASSUMPTION
         # H0: p = 0, which means the analysed data doesn't have correlation
@@ -711,23 +777,8 @@ class webAppRegSimple:
 class webAppCorrSimple:
     # Correlation Plot. Plot to se how correlated the "X" and "Y" variables are (X is the independient and Y is the dependient variable)
     def correlation_plot(df):
-
-        # Crear el scatter plot con Plotly Express
-        fig = px.scatter(df, x='x', y='y', template='plotly_dark', 
-                        color='y', hover_data={'x': True, 'y': True}, trendline='ols',trendline_color_override='white')
-
-
-        # Configurar el título con Plotly Graph Objects
-        fig.update_layout(title=dict(text=f"<b>Correlation Scatter Plot ({df.corr()['x']['y'].__round__(4)*100:.2f}%)</b>",
-                                    x=0.5,  # Centrado horizontalmente
-                                    y=0.95,  # Alineado en la parte superior
-                                    xanchor='center',  # Anclaje horizontal al centro
-                                    yanchor='top'))  # Anclaje vertical en la parte superior
-
-        # Actualizar las trazas de los marcadores
-        fig.update_traces(marker=dict(color='blue', size=8), hovertemplate='x: %{x}<br>y: %{y}', line=dict(dash='dot'))
-        
-        return fig
+        correlation_plot = global_functions.scatter_plot(df,'Correlation Plot')
+        return correlation_plot
     
     # This function will tell you how correlated your data is
     def correlation(df):
@@ -773,8 +824,10 @@ class webAppCorrMultiple:
 # Class with calculations for the MULTIPLE REGRESSION MODELS
 class RegMultiple:
     # This function returns a list with the following data: y forecast (numpy array), betas (Data Frame), ecuation (string), Cjj (list)
-    def ecuation_est(X,Y):
-        X = sm.add_constant(X)
+    def ecuation_est(X,Y,regressionToOrigin):
+        
+        if regressionToOrigin == False:
+            X = sm.add_constant(X)
 
         betas = pd.DataFrame()
         betas["variable"] = X.columns
@@ -791,7 +844,10 @@ class RegMultiple:
         
         y_est = np.dot(X,b)
         
-        ecuation = f"Ŷ = {b[0][0].__round__(2)}"
+        if regressionToOrigin == False:
+            ecuation = f"Ŷ = {b[0][0].__round__(2)}"
+        else:
+            ecuation = f"Ŷ ="
 
         s = {
             0: '₀',
@@ -805,12 +861,13 @@ class RegMultiple:
             8: '₈',
             9: '₉'
         }
-
+        
+        sDef = lambda x: s[x] if x<10 else s[int(str(x)[:1])] + s[int(str(x)[1:])]
         for i,beta in enumerate(b[1:]):
             if beta >= 0:
-                ecuation += f"+ {beta[0].__round__(2)}X{s[i+1]}"
+                ecuation += f" +{beta[0].__round__(2)}X{sDef(i+1)}"
             else:
-                ecuation += f"{beta[0].__round__(2)}X{s[i+1]}"
+                ecuation += f" -{-beta[0].__round__(2)}X{sDef(i+1)}"
                 
         Cjj = [XtX_inv[i][i] for i in range(len(XtX_inv))]
         
@@ -823,11 +880,11 @@ class RegMultiple:
     
     # This function depends on the "ecuation_est()" function. It returns a dict with the anova table (data frame), r_square (int. which means Variability of the Model for multiple regression), 
     # r_squared_adj (int. which measures the model performance), significance test (str), betas (numpy array), y forecast (numpy array), residuals (numpy array), and the estimated ecuation (str)
-    def anova_table(df,y_index,y_name):
+    def anova_table(df, y_index, y_name, regToOrigin):
         Y = df.iloc[:,y_index:y_index+1]
         X = df.drop(y_name, axis=1)
 
-        ec_est = RegMultiple.ecuation_est(X,Y)
+        ec_est = RegMultiple.ecuation_est(X,Y,regToOrigin)
         Y_est = ec_est[0]
         residuals = (np.array(Y) - Y_est).T[0]
         
@@ -869,12 +926,12 @@ class RegMultiple:
 class webAppRegMultiple:
     # Will return assumption plots and results, contains also the model data calculated with the "anova_table" function from the "RegMultiple" class
     # TO DEFINE: THE DATA THAT WE WANT TO RETURN FROM THE model_data VARIABLE
-    def mult_reg_model(df):
+    def mult_reg_model(df, regToOrigin):
         y_definition = global_functions.select_y_var(df)
         y_name = y_definition['y_name']
         y_index = y_definition['y_index']
         
-        model_data = RegMultiple.anova_table(df,y_index,y_name)
+        model_data = RegMultiple.anova_table(df,y_index,y_name, regToOrigin)
         
         ## ASSUMPTIONS
         versus_fits_df = pd.DataFrame({'Fitted Value':model_data['y_est'],'Residuals':model_data['residuals']})
@@ -882,21 +939,15 @@ class webAppRegMultiple:
 
         # RESIDUALS CONSTANT VARIANCE
         # Versus Fits Plot
-        versus_fit_plt = webAppRegMultiple.scatter_plot(versus_fits_df,'Versus Fits')
+        versus_fit_plt =global_functions.scatter_plot(versus_fits_df,'Versus Fits')
 
         # INCORRELATION OF THE RESIDUALS
         # Versus Order Plot
-        versus_order_plt = webAppRegMultiple.scatter_plot(versus_order_df,'Versus Order')
-
+        versus_order_plt = global_functions.scatter_plot(versus_order_df,'Versus Order')
+        
         # NORMALITY OF THE RESIDUALS
-        # Sorting residuals ascendently
-        sorted_residuals = np.sort(model_data['residuals'])
-        # Standarized Residuals
-        std_residuals = [(i-.375)/(len(df)+.25) for i in range(1,len(df)+1)]
-        # Data Frame to use the scatter plot function
-        normal_prob_df = pd.DataFrame({'Residuals':sorted_residuals,'Standarized Residuals':std_residuals})
-        # Normal Probability Plot
-        normal_prob_plt = webAppRegMultiple.scatter_plot(normal_prob_df,'Normal Probability Plot')
+        # To visually analyze it we can use the qqplot
+        normal_prob_plt = global_functions.qqplot(model_data['residuals'],model_data['anova_table']['half_square'][1])
         
         # Normality mean 0 variance of the residuals
         normal_0_mean_asumption, normal_0_mean_hist =global_functions.normality_0_mean(model_data['anova_table'],model_data['residuals'])
@@ -914,7 +965,7 @@ class webAppRegMultiple:
     # Returns a data frame with a summary for the coefficients (name of the terms, value of the coefficients, confidence interval for the coefficients and its VIF)
     # This table is essential at the begining, where you run the model with all the variables of the sample. If you have a VIF higher than 10, it is recommended to eliminate the variable with the higher VIF,
     # or to expand the sample size.
-    def coef_summary(df):
+    def coef_summary(df, regToOrigin):
         # Function for selecting the "y" column in the dataframe
         y_definition = global_functions.select_y_var(df)
         y_name = y_definition['y_name']
@@ -922,13 +973,15 @@ class webAppRegMultiple:
 
         # Dataframe for "X" variables and "Y" variable columns
         X = df.drop(y_name, axis=1)
-        X = sm.add_constant(X)
+        
+        if regToOrigin == False:
+            X = sm.add_constant(X)
         Y = df.iloc[:,y_index:y_index+1]
 
         # VIF
         # VIF formula is VIFj = 1/(1-Rj^2)
         # Using the anova table function to determine Rj^2 which is the multiple determination coefficient obtained by doing the regression "Xi" on the other regresion variables.
-        models_data = [RegMultiple.anova_table(X, index, name) for index,name in enumerate(X.columns)]
+        models_data = [RegMultiple.anova_table(X, index, name, regToOrigin) for index,name in enumerate(X.columns)]
         # Variability of the estimated regressions (r squared)
         r_square = [i['r_square'] for i in models_data]
         # VIF
@@ -940,12 +993,12 @@ class webAppRegMultiple:
         # p is the total number of parameters in the regression model
         
         # Annova table for the estimated ecuation
-        anova_est_ec = RegMultiple.anova_table(df,y_index,y_name)
+        anova_est_ec = RegMultiple.anova_table(df,y_index,y_name,regToOrigin)
         # Variance of the Residuals of the estimated ecuation
         residuals_var = anova_est_ec['anova_table']['half_square'][1]
         
         # Ec Estimation data
-        ec_est_data = RegMultiple.ecuation_est(X,Y)
+        ec_est_data = RegMultiple.ecuation_est(X,Y,regToOrigin)
         # Coefficients (b0,b1,..,bk)
         bi = ec_est_data[1]
 
@@ -972,7 +1025,7 @@ class webAppRegMultiple:
     
     # This function will return a dataframe with the top 2 models for all of the different sizes of the independient variables (top 2 for a model with 1 independient variable, 2, 3, ..., k)
     # It will show which variables make up each model, with its performance (r_squared_adj) and its variability (r_squared)
-    def top_models(df):
+    def top_models(df, regToOrigin):
         # Function for selecting the "y" column in the dataframe
         y_definition = global_functions.select_y_var(df)
         y_name = y_definition['y_name']
@@ -981,11 +1034,12 @@ class webAppRegMultiple:
         # Dataframe for "X" variables and "Y" variable columns
         X = df.drop(y_name, axis=1)
         Y = df.iloc[:,y_index:y_index+1]
-
+        
         variables = X.columns
         all_combinations = []
         r_square = []
         r_square_adj = []
+        S = []
 
         df_x = []
         for i in range(1,len(X.columns)+1):
@@ -994,9 +1048,10 @@ class webAppRegMultiple:
                 all_combinations.append(c)
                 df_x.append(df.loc[:,c])
         df_for_regression = [pd.concat([Y, X_vars], axis=1) for X_vars in df_x]
-        model = [RegMultiple.anova_table(df,y_index,y_name) for df in df_for_regression]
+        model = [RegMultiple.anova_table(df,y_index,y_name,regToOrigin) for df in df_for_regression]
         [r_square.append(m['r_square']) for m in model]
         [r_square_adj.append(m['r_square_adj']) for m in model]
+        [S.append(m['anova_table']['half_square'][1]) for m in model]
         
         rows = []      
         for comb in all_combinations:
@@ -1007,58 +1062,12 @@ class webAppRegMultiple:
         results_df = pd.DataFrame(rows,columns=['Vars'] + X.columns.tolist())
         results_df['R sq'] = np.round(np.array(r_square)*100,4)
         results_df['R sq (adj)'] = np.round(np.array(r_square_adj)*100,4)
+        results_df['S'] = np.round(np.array(S)**.5,4)
 
         # Ordenar el DataFrame por 'num_vars' y luego por 'R sq'
-        df_sorted = results_df.sort_values(by=['Vars', 'R sq'], ascending=[True, False])
+        df_sorted = results_df.sort_values(by=['Vars', 'R sq (adj)'], ascending=[True, False])
 
         # Seleccionar el top 2 de cada grupo de 'num_vars'
         top_n_per_group = df_sorted.groupby('Vars').head(2).reset_index(drop=True)
         
         return top_n_per_group
-    
-    # Function to make the different scatter plots for the MULTIPLE REGRESSION MODELS
-    def scatter_plot(df,title):
-        # First Column of the data frame is going to be X axis an second column is going to be Y axis
-        x_name = df.columns[0]
-        y_name = df.columns[1]
-
-        # Creating Scatter Plot
-        fig = px.scatter(df, x=x_name, y=y_name, template='plotly_dark', 
-                        color=y_name, hover_data={x_name: True, y_name: True})
-
-
-        # Configurar el título con Plotly Graph Objects
-        fig.update_layout(title=dict(text=f"<b>{title}</b>",
-                                    x=0.5,  # Centering title horizontaly
-                                    y=0.95,  # Title aligned to the top of the plot
-                                    xanchor='center',  # Horizontal anchor cenetered
-                                    yanchor='top'))  # Vertical anchor at the top
-
-        # Updating tooltip, color and size of the dots
-        fig.update_traces(marker=dict(color='blue', size=8), hovertemplate=f'{x_name}: %{{x}}<br>{y_name}: %{{y}}', line=dict(dash='dot'))
-        
-        # Just for the Versus Fits and the Versus Order Plots, we are adding an horizontal dotted line.
-        if title == 'Versus Fits' or title == 'Versus Order':
-            # Adding horizontal dotted line.
-            fig.add_shape(type='line',
-                        x0=df[x_name].min(), x1=df[x_name].max(),
-                        y0=0, y1=0,  # Adjusting de horizontal line to y=0
-                        line=dict(color='white', dash='dot'))
-        
-        # Just for the Versus Order Plot, we are adding a line that follows all the points without smoothing lines
-        if title == 'Versus Order':
-            line_fig = px.line(df, x=x_name, y=y_name)
-            for trace in line_fig.data:
-                trace.update(line=dict(color='blue', width=2))
-                fig.add_trace(trace)
-        
-        # Just for the Normal Probability Plot we are adding a tendence line.
-        if title == 'Normal Probability Plot':      
-            # Calcular la línea de tendencia usando statsmodels
-            X = sm.add_constant(df[x_name])  # Agregar una constante para el término independiente
-            model = sm.OLS(df[y_name], X).fit()
-            trendline = model.predict(X)
-
-            # Agregar la línea de tendencia al gráfico
-            fig.add_trace(go.Scatter(x=df[x_name], y=trendline, mode='lines', name='Línea de tendencia', line=dict(color='red')))
-        return fig
