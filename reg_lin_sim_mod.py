@@ -10,7 +10,7 @@ from itertools import combinations
 
 # The Critical Values of the Durbin Watson Test are from:
 # https://support.minitab.com/en-us/minitab/help-and-how-to/statistical-modeling/regression/supporting-topics/model-assumptions/test-for-autocorrelation-by-using-the-durbin-watson-statistic/
-durbin_watson = pd.read_csv('/Users/macbook/Desktop/Proyecto Métodos Estadísticos/Regression-Modeling/critical_values_durbin_watson.csv')
+durbin_watson = pd.read_csv('critical_values_durbin_watson.csv')
 
 # THIS FUNCTIONS ARE GOING TO BE GLOBAL
 class global_functions:
